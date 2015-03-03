@@ -5,7 +5,7 @@ import scipy.stats as stats
 from scipy.cluster.hierarchy import * #@UnusedWildImport
 from scipy.spatial.distance import * #@UnusedWildImport
 from sklearn.mixture import GMM
-import pickle
+import pickle,scipy,segmenter
 
 EPS = 2.0**(-20.0)
 NORM = stats.norm
@@ -37,7 +37,7 @@ def cluster_import(cluster_object_dir):
     return _cluster
 
 def _co_table(fclust, fclust2):
-    '''
+    ''' co-occurrences table
     '''
     _table = np.zeros((np.max(fclust),np.max(fclust2)))
     for i in range(len(fclust)):
@@ -130,7 +130,7 @@ def get_child_obs(parent_obs, code_num, code):
     _child_obs = np.array(_child_obs)  
     return _child_obs,_count 
 
-def _get_BIC(obs, centroids):
+def _get_BIC(obs, centroids, VERBOSE = False):
     _centroids = centroids
     _obs = obs
     try:
@@ -167,7 +167,8 @@ def _get_BIC(obs, centroids):
                 _log_likelihood = ((-_r/2.0)*np.log(2.0*np.pi)) - ((_r*_dim/2.0)*np.log(_variance)) \
                                     - ((_r-_K)/2.0) + (_r*np.log(_r)) - (_r*np.log(_R)) 
             _tmp_BIC = (_log_likelihood - (_parameter_num/2.0)*np.log(_R))
-#        print "_get_BIC(one class): ",_tmp_BIC
+        if VERBOSE:
+            print "_get_BIC(one class): ",_tmp_BIC
     else:
         _code,_distance = vq.vq(_obs,_centroids)
         del _obs,_centroids
@@ -200,7 +201,8 @@ def _get_BIC(obs, centroids):
                                                 - ((_r-_K)/2.0) + (_r*np.log(_r)) - (_r*np.log(_R)) 
         _log_likelihood = np.sum(_tmp_log_likelihood)
         _tmp_BIC = (_log_likelihood - (_parameter_num/2.0)*np.log(_R))
-#        print "_get_BIC(two class): ",_tmp_BIC
+        if VERBOSE:
+            print "_get_BIC(two class): ",_tmp_BIC
     return _tmp_BIC
 
 def b_accept(obs, VERBOSE = False):
@@ -231,7 +233,7 @@ def b_accept(obs, VERBOSE = False):
     
     return (_score < _CRITICAL)
 
-def project_to_vector(data,vector):
+def project_to_vector(data, vector):
     _data = data
     _vector = vector
     _lenth = np.sqrt(np.sum(np.square(_vector)))
@@ -276,6 +278,46 @@ def viterbi(n_iter, charm_vec, cluster_obj, HMM_vec, b):
         HMM_vec[i]._update_transition(update_init = False)
         count +=1               
         
+        
+class spectral_clustering(object):        
+    
+    def __init__(self, obs, self_sim = None, metric = 'euclidean'):
+        self.obs = obs
+        self.N, self.dim  = obs.shape
+        self.metric = metric
+        if self_sim == None:
+            self._get_self_sim()
+        else:
+            self.self_sim = self_sim
+        
+    def _get_self_sim(self):
+        Y = pdist(self.obs, self.metric)
+        self.self_sim = squareform(Y)
+#         self.self_sim = scipy.exp(-A / np.std(Y)**2)
+    
+    def get_laplacian(self):
+        # Get the inverse of the degree matrix 
+        d_mat = np.sum(self.self_sim, axis = 1)**-1.0
+        # Set infinite terms to 1.0
+        d_mat[~np.isfinite(d_mat)] = 1.0
+        # Use the square root of the degree matrix to set up the diagonal matrix
+        d_mat = np.diag(d_mat**0.5)
+        # Calculate the normalized graph laplacian
+        self.laplacian = np.eye(self.N) - d_mat.dot(self.self_sim.dot(d_mat))
+        
+    def eigen_decompose(self):
+        eigen_vals, eigen_vecs = scipy.linalg.eig(self.laplacian)
+        eigen_vals = eigen_vals.real
+        eigen_vecs = eigen_vecs.real
+        ind = np.argsort(eigen_vals)
+        
+        eigen_vals = eigen_vals[ind]
+        eigen_vecs = eigen_vecs[:,ind]
+    
+        self.eigen_vals = eigen_vals
+        self.eigen_vecs = eigen_vecs.T
+        
+                
 class X_means(object):
     
     default_init_k = 1
